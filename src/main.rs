@@ -79,7 +79,7 @@ impl Printer {
   }
 
   fn print_bitmap(&mut self, width:u32, height: u32, w_bytes: usize, bitmap: &[u8]) {
-    let mut cmd: Vec<u8> = Vec::from([0x1d, 0x76, 0x30, 0x00]);
+    let mut cmd: Vec<u8> = Vec::from([0x1d, 0x76, 0x30, 0x03]);
     if width > 382 { return };
     cmd.extend_from_slice(self.to_two_byte(w_bytes as u16).as_ref());
     cmd.extend_from_slice(self.to_two_byte(height as u16).as_ref());
@@ -89,14 +89,8 @@ impl Printer {
     self.flush_buf();
     for i in 0..height {
       for j in 0..width/8 {
-        for bit in cmd[((i+1) * j) as usize].view_bits().iter() {
-          let _: BitRef<Const, u8, bitvec::order::Lsb0> = bit;
-          if *bit {
-            print!("#")
-          } else {
-            print!("_")
-          }
-        }
+        let byte = cmd[((i+1) * j) as usize];
+        print!("{:08b}", byte);
       }
       print!("\n");
     }
@@ -113,6 +107,7 @@ impl Printer {
     imageops::resize(&img, width, height, imageops::Triangle);
     imageops::grayscale(&img);
     let img = img.to_luma8();
+    let mut dithered_img = image::GrayImage::new(width + 1, height + 1);
 
     let mut grayscale = vec![vec![0u8 ; height as usize]; width as usize];
     let mut bitmap = vec![vec![0u8 ; height as usize]; (width as f32 / 8.0).ceil() as usize];
@@ -166,8 +161,8 @@ impl Printer {
       }
     }
 
-    fn add_error(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, val: i32, importance: i32) {
-      let error: i32 = (val as f32/ importance as f32).round() as i32;
+    fn add_error(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, val: &i32, importance: i32) {
+      let error: i32 = (*val as f32/ importance as f32).round() as i32;
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
         if let Some(row) = vector.get_mut(x as usize) {
           if let Some(pixel) = row.get_mut(y as usize) {
@@ -178,31 +173,38 @@ impl Printer {
     }
 
     for pos in img.enumerate_pixels() {
-      if pos.0 > bitmap.len() as u32 || pos.1 > bitmap.get(0).unwrap().len() as u32 {
-        continue
+      if pos.0 > grayscale.len() as u32 || pos.1 > grayscale.get(0).unwrap().len() as u32 {
+        continue;
       }
       let error: i32;
       match get_pixel(&grayscale, pos.0 as i32, pos.1 as i32) {
         x if x> 127 => {
           set_pixel(&mut grayscale, pos.0 as i32, pos.1 as i32, 255);
+          dithered_img.put_pixel(pos.0, pos.1, Luma([255]));
           error = x as i32 - 255;
           add_bit_to_bitmap(&mut bitmap, pos.0 as i32, pos.1 as i32, false);
         },
         x => {
           set_pixel(&mut grayscale, pos.0 as i32, pos.1 as i32, 0);
+          dithered_img.put_pixel(pos.0, pos.1, Luma([0]));
           error = x as i32;
           add_bit_to_bitmap(&mut bitmap, pos.0 as i32, pos.1 as i32, true);
         }
       };
 
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.0 as i32, error, 7);
-      add_error(&mut grayscale, pos.0 as i32 - 1, pos.0 as i32+ 1, error, 3);
-      add_error(&mut grayscale, pos.0 as i32, pos.0 as i32 + 1, error, 5);
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.0 as i32 + 1, error, 1);
+      add_error(&mut grayscale, pos.0 as i32 + 1, pos.0 as i32, &error, 7);
+      add_error(&mut grayscale, pos.0 as i32 - 1, pos.0 as i32+ 1,&error, 3);
+      add_error(&mut grayscale, pos.0 as i32, pos.0 as i32 + 1, &error, 5);
+      add_error(&mut grayscale, pos.0 as i32 + 1, pos.0 as i32 + 1, &error, 1);
+    }
+
+    match dithered_img.save("D:\\geral\\Caio\\meus_programas\\thermal_printer\\output.png") {
+      Ok(_) => (),
+      Err(e) => panic!("error saving: {:?}", e)
     }
 
     println!("{:?}", &bitmap.concat());
-    self.print_bitmap(width, height, bitmap.len(), &bitmap.concat());
+    // self.print_bitmap(width, height, bitmap.len(), &bitmap.concat());
   }
 }
 
