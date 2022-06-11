@@ -1,14 +1,79 @@
+#![allow(dead_code, unused_variables)]
+
 use core::panic;
-use std::{fs::File, io::Write, path::Path};
-use image::{imageops, Luma, Pixel, ImageBuffer};
-use bitvec::{view::BitView, ptr::{BitRef, Const}};
+use std::{fs::File, io::Write, env, path::Path};
+use image::{imageops, Luma, Pixel};
+
+struct BitImage {
+  bytes: Vec<u8>,
+  width: usize,
+  height: usize,
+  w_bytes: usize
+}
+
+impl BitImage {
+  fn new(w: usize, h: usize) -> Self {
+    let mut bytes_vec = Vec::with_capacity((w as f64 / 8.0).ceil() as usize * h);
+    for i in 0..bytes_vec.capacity() {
+      bytes_vec.push(0);
+    }
+    BitImage {
+      bytes: bytes_vec,
+      width: w,
+      height: h,
+      w_bytes: (w as f64 / 8.0).ceil() as usize
+    }
+  }
+
+  fn get_width_in_bytes(&self) -> usize {
+    self.w_bytes
+  }
+
+  fn is_within_bounds(&self, x: isize, y: isize) {
+    if x < 0 && x >= self.width as isize && y < 0 && y >= self.height as isize {
+      panic!("tried to read out of bounds at coords: {}, {}", x, y);
+    }
+  }
+
+  fn get_pixel(&self, x: isize, y: isize) -> bool {
+    self.is_within_bounds(x, y);
+    let position: u8 = 1 << x % 8;
+    let pixel_byte: &u8 = match self.bytes.get(x as usize / 8 + (y as usize * self.w_bytes)) {
+      Some(o) => o,
+      None => panic!("tried to read BitImage pixel that is out of bounds!")
+    };
+    return *pixel_byte | position == *pixel_byte
+  }
+
+  fn set_pixel(&mut self, x:isize, y: isize, val: bool) {
+    self.is_within_bounds(x, y);
+    let position: u8 = 128 >> x % 8;
+    let byte_pos = (x as f64 / 8.0).floor() as usize + (y as usize * self.w_bytes);
+    let pixel_byte: &mut u8 = match self.bytes.get_mut((x as f64 / 8.0).floor() as usize + (y as usize * self.w_bytes)) {
+      Some(o) => o,
+      None => panic!("tried to read BitImage pixel that is out of bounds at: {}, {}", x, y)
+    };
+    if val{
+      *pixel_byte |= position;
+    } else {
+      *pixel_byte = *pixel_byte & !position;
+    }
+  }
+
+  fn as_slice(&self) -> &[u8]{
+    self.bytes.as_slice()
+  }
+}
 
 struct Printer {
   path: String,
   file_handle: File,
 }
 
+const GS: u8 = 0x1d;
+
 impl Printer {
+
   fn new(printer_path: &str) -> Self {
     Printer {
       file_handle: {
@@ -78,47 +143,46 @@ impl Printer {
     }
   }
 
+  fn print_qr_code(&mut self, size: usize, data: &[u8]) {
+
+    self.print_bytes(&[GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, 0x0f]);
+
+
+    let mut cmd: Vec<u8> = Vec::from([GS, 0x28, 0x6b]);
+    cmd.extend_from_slice(&self.to_two_byte(data.len() as u16 + 3));
+    cmd.extend_from_slice(&[0x31, 0x50, 0x30]);
+    cmd.extend_from_slice(data);
+
+    self.write_vec(&cmd);
+    self.flush_buf();
+  }
+
   fn print_bitmap(&mut self, width:u32, height: u32, w_bytes: usize, bitmap: &[u8]) {
-    let mut cmd: Vec<u8> = Vec::from([0x1d, 0x76, 0x30, 0x03]);
+    let mut cmd: Vec<u8> = Vec::from([0x1d, 0x76, 0x30, 0x00]);
     if width > 382 { return };
     cmd.extend_from_slice(self.to_two_byte(w_bytes as u16).as_ref());
     cmd.extend_from_slice(self.to_two_byte(height as u16).as_ref());
-    cmd.extend_from_slice(bitmap);
-    cmd.extend_from_slice("\r\n".as_bytes());
-    self.write_vec(&cmd);
-    self.flush_buf();
+    // cmd.extend_from_slice(bitmap);
+    // cmd.extend_from_slice("\r\n".as_bytes());
+
     for i in 0..height {
-      for j in 0..width/8 {
-        let byte = cmd[((i+1) * j) as usize];
-        print!("{:08b}", byte);
+      for j in 0..w_bytes {
+        let pos = j + (i as usize * w_bytes);
+        // print!(" {}: ", pos);
+        let byte = &bitmap[pos];
+        print!("{:08b}", *byte);
+        // cmd.push(byte);
       }
       print!("\n");
     }
+
+    cmd.append(&mut Vec::from(bitmap));
+    self.write_vec(&cmd);
+
     println!("dimensions: {:?}x{:?}", width, height);
   }
 
   fn print_image(&mut self, path: &str, width:u32) {
-
-    let img = match image::open(path) {
-      Ok(o) => o,
-      Err(e) => panic!("error opening image: {}", e)
-    };
-    let height: u32 = (img.height() as f32 * (width as f32/ img.width() as f32)) as u32;
-    imageops::resize(&img, width, height, imageops::Triangle);
-    imageops::grayscale(&img);
-    let img = img.to_luma8();
-    let mut dithered_img = image::GrayImage::new(width + 1, height + 1);
-
-    let mut grayscale = vec![vec![0u8 ; height as usize]; width as usize];
-    let mut bitmap = vec![vec![0u8 ; height as usize]; (width as f32 / 8.0).ceil() as usize];
-
-    for pix in img.enumerate_pixels() {
-      if let Some(row) = grayscale.get_mut(pix.0 as usize) {
-        if let Some(pixel) = row.get_mut(pix.1 as usize) {
-          *pixel = pix.2.channels()[0];
-        }
-      }
-    }
 
     fn get_pixel(vector: &Vec<Vec<u8>>,x: i32, y: i32) -> u8 {
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
@@ -147,27 +211,34 @@ impl Printer {
       }
     }
 
-    fn add_bit_to_bitmap(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, val: bool) {
-      if x >= 0 && x < vector.len() as i32 * 8 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
-        if let Some(row) = vector.get_mut((x as f32 / 8.0).floor() as usize) {
-          if let Some(pixel) = row.get_mut(y as usize) {
-            if val {
-              *pixel = (*pixel << 1) + 1;
-            } else {
-              *pixel = *pixel << 1;
-            }
-          }
-        }
-      }
-    }
-
     fn add_error(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, val: &i32, importance: i32) {
-      let error: i32 = (*val as f32/ importance as f32).round() as i32;
+      let error: i32 = (*val as f32 * (importance as f32 / 16.0)).round() as i32;
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
         if let Some(row) = vector.get_mut(x as usize) {
           if let Some(pixel) = row.get_mut(y as usize) {
             *pixel = (*pixel as i32 + error).clamp(0, 255) as u8;
           }
+        }
+      }
+    }
+
+    let mut img = match image::open(path) {
+      Ok(o) => o,
+      Err(e) => panic!("error opening image: {}", e)
+    };
+    let height: u32 = (img.height() as f32 * (width as f32/ img.width() as f32)) as u32;
+    img = img.resize(width, height, imageops::Triangle);
+    let img = img.to_luma8();
+    let mut dithered_img = image::GrayImage::new(width + 1, height + 1);
+
+    let mut grayscale = vec![vec![0u8 ; height as usize]; width as usize];
+    // let mut bitmap = vec![vec![0u8 ; (width as f32 / 8.0).ceil() as usize]; height as usize];
+    let mut bitmap: BitImage = BitImage::new(width as usize, height as usize);
+
+    for pix in img.enumerate_pixels() {
+      if let Some(row) = grayscale.get_mut(pix.0 as usize) {
+        if let Some(pixel) = row.get_mut(pix.1 as usize) {
+          *pixel = pix.2.channels()[0];
         }
       }
     }
@@ -178,37 +249,38 @@ impl Printer {
       }
       let error: i32;
       match get_pixel(&grayscale, pos.0 as i32, pos.1 as i32) {
-        x if x> 127 => {
+        x if x> 128 => {
           set_pixel(&mut grayscale, pos.0 as i32, pos.1 as i32, 255);
           dithered_img.put_pixel(pos.0, pos.1, Luma([255]));
           error = x as i32 - 255;
-          add_bit_to_bitmap(&mut bitmap, pos.0 as i32, pos.1 as i32, false);
+          bitmap.set_pixel(pos.0 as isize, pos.1 as isize, false);
         },
         x => {
           set_pixel(&mut grayscale, pos.0 as i32, pos.1 as i32, 0);
           dithered_img.put_pixel(pos.0, pos.1, Luma([0]));
           error = x as i32;
-          add_bit_to_bitmap(&mut bitmap, pos.0 as i32, pos.1 as i32, true);
+          bitmap.set_pixel(pos.0 as isize, pos.1 as isize, true);
         }
       };
 
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.0 as i32, &error, 7);
-      add_error(&mut grayscale, pos.0 as i32 - 1, pos.0 as i32+ 1,&error, 3);
-      add_error(&mut grayscale, pos.0 as i32, pos.0 as i32 + 1, &error, 5);
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.0 as i32 + 1, &error, 1);
+      add_error(&mut grayscale, pos.0 as i32 + 1, pos.1 as i32, &error, 7);
+      add_error(&mut grayscale, pos.0 as i32 - 1, pos.1 as i32 + 1, &error, 3);
+      add_error(&mut grayscale, pos.0 as i32, pos.1 as i32 + 1, &error, 5);
+      add_error(&mut grayscale, pos.0 as i32 + 1, pos.1 as i32 + 1, &error, 1);
     }
 
-    match dithered_img.save("D:\\geral\\Caio\\meus_programas\\thermal_printer\\output.png") {
+    match dithered_img.save("D:\\geral\\Caio\\meus_programas\\thermal_printer\\output_dithered.png") {
       Ok(_) => (),
       Err(e) => panic!("error saving: {:?}", e)
     }
 
-    println!("{:?}", &bitmap.concat());
-    // self.print_bitmap(width, height, bitmap.len(), &bitmap.concat());
+    println!("{:?}", bitmap.as_slice());
+    self.print_bitmap(width, height, bitmap.get_width_in_bytes(), bitmap.as_slice());
   }
 }
 
 fn main() {
+  env::set_var("RUST_BACKTRACE", "1");
   let printer_location = "\\\\DESKTOP-GPDFQCL\\Thermal_Printer";
   let message = "BRUH!\n";
   let mut printer = Printer::new(printer_location);
@@ -282,9 +354,11 @@ fn main() {
   0b11111111,0b11111111,0b11100000,0b00001111,0b11000111,0b11110000,0b11111110,0b00011111,0b10001111,0b10000111,0b11000111,0b00011100,0b11111000,0b11111111,0b11111111,0b11111111,
   ];
 
-  printer.print_image("D:/geral/Caio/meus_programas/thermal_printer/sample.webp", 128);
+  // printer.print_image("D:/geral/Caio/meus_programas/thermal_printer/trollface.jpg", 340);
 
-  // printer.print_bitmap(16, 64, &bitmap);
+  printer.print_qr_code(256, b"https://doc.rust-lang.org/");
+
+  // printer.print_bitmap(128, 64, 16, &bitmap);
   // printer.print_bitmap(1, 1, &[
     //   0b11111111,
     //   0b11111111,
