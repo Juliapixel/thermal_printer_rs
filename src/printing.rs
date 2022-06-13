@@ -152,9 +152,12 @@ impl Printer {
     }
   }
 
+  pub fn set_justification(&mut self, value: u8) {
+    self.print_bytes(&[ESC, 0x61, value]);
+  }
+
   pub fn print_qr_code(&mut self, size: u8, data: &[u8]) {
 
-    self.print_bytes(&[ESC, 0x61, 0x01]);
     self.print_bytes(&[GS, 0x28, 0x6b, 0x03, 0x00, 0x31, 0x43, size]);
 
 
