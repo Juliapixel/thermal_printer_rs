@@ -5,7 +5,7 @@ pub mod bitimage;
 
 use core::panic;
 use std::{env, path::Path};
-use clap::{Parser, Arg};
+use clap::Arg;
 
 fn main() {
   env::set_var("RUST_BACKTRACE", "1");
