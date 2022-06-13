@@ -1,3 +1,22 @@
+/// # About
+/// A struct to handle a bitmap image in which each bit represents a pixel
+/// # Creating
+/// ```
+/// let mut bitmap = BitImage::new(128, 64);
+/// ```
+/// # Usage
+/// Setting a pixel
+/// ```
+/// bitmap.set_pixel(32, 64, true);
+/// ```
+/// Getting the value of a pixel
+/// ```
+/// assert_eq!(bitmap.get_pixel(32, 64), true);
+/// ```
+/// To use with ```Printer::print_bitmap()```
+/// ```
+/// printer.print_bitmap(bitmap.get_width() as u32, bitmap.get_height() as u32, bitmap.as_slice())
+/// ```
 pub struct BitImage {
   bytes: Vec<u8>,
   width: usize,
@@ -6,6 +25,10 @@ pub struct BitImage {
 }
 
 impl BitImage {
+  /// # Examples
+  /// ```
+  /// let mut bitmap = BitImage::new(128, 64);
+  /// ```
   pub fn new(w: usize, h: usize) -> Self {
     let mut bytes_vec = Vec::with_capacity((w as f64 / 8.0).ceil() as usize * h);
     for i in 0..bytes_vec.capacity() {
@@ -17,6 +40,14 @@ impl BitImage {
       height: h,
       w_bytes: (w as f64 / 8.0).ceil() as usize
     }
+  }
+
+  pub fn get_width(&self) -> usize {
+    self.width
+  }
+
+  pub fn get_height(&self) -> usize {
+    self.height
   }
 
   pub fn get_width_in_bytes(&self) -> usize {

@@ -3,38 +3,45 @@
 pub mod printing;
 pub mod bitimage;
 
-use core::panic;
-use std::{env, path::Path};
+use std::{env, path::PathBuf};
 use clap::Arg;
 
 fn main() {
+  #[cfg(debug_assertions)]
   env::set_var("RUST_BACKTRACE", "1");
 
-  let mut cmd = clap::Command::new("thermal_printer")
+  let cmd = clap::Command::new("thermal_printer")
     .arg(Arg::new("path_to_printer")
       .short('p')
       .long("path")
       .required(true)
+      .takes_value(true)
       .help("path to the printer file handle, see documentation for help (todo)")
     )
     .arg(Arg::new("input")
       .short('i')
       .long("input")
+      .takes_value(true)
+      .value_parser(clap::value_parser!(PathBuf))
       .help("image file path")
     )
     .arg(Arg::new("width")
       .short('w')
       .long("width")
+      .takes_value(true)
       .default_value("128")
       .help("width of the image in pixels")
     )
     .arg(Arg::new("qr_code_width")
       .long("qr_width")
+      .takes_value(true)
+      .default_value("5")
       .help("width of the qr code, must be in range 0..16")
     )
     .arg(Arg::new("qr_code")
       .short('q')
       .long("qr_code")
+      .takes_value(true)
       .help("print a qr code with the given text encoded into it")
     )
     .arg(Arg::new("debug")
@@ -45,6 +52,7 @@ fn main() {
     .arg(Arg::new("text")
       .short('t')
       .long("text")
+      .takes_value(true)
       .help("print the given text")
     )
     .arg(Arg::new("justification")
@@ -52,49 +60,49 @@ fn main() {
       .long("justification")
       .default_value("left")
       .help("must be either \"left\", \"center\" or \"right\", falls back to \"left\"")
-    )
+    ).get_matches()
   ;
+
   let cur_dir = env::current_dir().expect("error getting cwd!").to_str().expect("error turning path into string!").to_owned();
 
-  let args = cmd.clone().get_matches();
-  let mut printer = printing::Printer::new(args.value_of("path_to_printer").unwrap());
+  let mut printer = printing::Printer::new(cmd.get_one::<String>("path_to_printer").expect("path argument invalid!"));
 
-  match args.value_of("justification").unwrap().to_lowercase().as_str() {
+  match cmd.get_one::<String>("justification").unwrap().to_lowercase().as_str() {
     "left" => printer.set_justification(0),
     "center" => printer.set_justification(1),
     "right" => printer.set_justification(2),
     _ => printer.set_justification(0)
   }
 
-  if let Some(path) = args.value_of("input") {
-    let image_path: String;
+  if let Some(path) = cmd.get_one::<PathBuf>("input") {
+    let image_path: &str;
 
-    if Path::new(&path).exists() {
-      image_path = path.to_owned();
-    } else if Path::new(&(cur_dir.clone() + &path)).exists() {
-      image_path = cur_dir + &path
-    } else {
-      panic!("error finding file!");
+    // if Path::new(&path).exists() {
+    //   image_path = path.to_owned();
+    // } else if Path::new(&(cur_dir.clone() + &path)).exists() {
+    //   image_path = cur_dir + &path
+    // } else {
+    //   panic!("error finding file!");
+    // }
+    if path.exists() {
+      image_path = path.to_str().expect("error parsing image path!");
+      printer.print_image(image_path, cmd.get_one::<String>("width").expect("error parsing image width!").parse().expect("error parsing image width!"));
     }
-    printer.print_image(image_path.as_str(), args.value_of("width").unwrap().parse().unwrap());
-
     return
   }
 
-  if let Some(qr_code_text) = args.value_of("qr_code") {
-    printer.print_qr_code(args.value_of("qr_code_width").unwrap().parse().unwrap(), qr_code_text.as_bytes());
-    if args.is_present("debug") {
+  if let Some(qr_code_text) = cmd.get_one::<String>("qr_code") {
+    printer.print_qr_code(cmd.get_one::<String>("qr_code_width").expect("error parsing qr code width!").parse().expect("qr code width not a number!"), qr_code_text.as_bytes());
+    if cmd.contains_id("debug") {
       printer.println(qr_code_text);
     }
     return
   }
 
-  if let Some(text) = args.value_of("text") {
+  if let Some(text) = cmd.get_one::<String>("text") {
     printer.println(text);
     return
   }
-
-  cmd.print_help().expect("failed printing help!");
 
   // printer.print_qr_code(10, b"https://oisumida.rs/");
 
