@@ -1,2 +1,14 @@
+#compilation target
 /target
+
+# editor files
 /.vscode
+
+# image formats
+*.png
+*.webp
+*.jpg
+*.svg
+
+# zips
+*.7z
