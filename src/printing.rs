@@ -89,7 +89,7 @@ impl Printer {
   }
 
   /// # About
-  /// Simlpy puts the contents of the supplied vector into the buffer.
+  /// Simply puts the contents of the supplied vector into the buffer.
   ///
   /// Requires flushing.
   fn write_vec(&mut self, bytes: &Vec<u8>) {
@@ -143,29 +143,57 @@ impl Printer {
   /// ];
   /// printer.print_bitmap(width = 16, height = 8, w_bytes = 2, &bitmap);
   /// ```
-  pub fn print_bitmap(&mut self, width:u32, height: u32, w_bytes: usize, bitmap: &[u8]) {
-    let mut cmd: Vec<u8> = Vec::from([GS, 0x76, 0x30, 0x00]);
-    if width > 382 { return };
-    cmd.extend_from_slice(self.to_two_byte(w_bytes as u16).as_ref());
-    cmd.extend_from_slice(self.to_two_byte(height as u16).as_ref());
+  pub fn print_bitmap(&mut self, width: u16, height: u16, w_bytes: usize, bitmap: &[u8]) {
+    let flush_height: u16 = 64;
+    let mut cmd: Vec<u8> = Vec::with_capacity(4 + (w_bytes * flush_height as usize));
+    // self.print_bytes(&[GS, 0x76, 0x30, 0x00]);
+    // if width > 382 { return };
+    // self.print_bytes(self.to_two_byte(w_bytes as u16).as_ref());
+    // self.print_bytes(self.to_two_byte(height as u16).as_ref());
+
+    let mut last_pos: usize = 0;
+    let mut last_height: u16 = 0;
+    loop {
+      let range_end = (last_pos + (w_bytes * flush_height as usize)).clamp(0, bitmap.len());
+      let next_height = (last_height + flush_height).clamp(0, height as u16);
+      let part_height: u16 = next_height - last_height;
+
+      cmd.extend_from_slice(&[GS, 0x76, 0x30, 0x00]);
+      cmd.extend_from_slice(&self.to_two_byte(w_bytes as u16));
+      cmd.extend_from_slice(&self.to_two_byte(part_height));
+      cmd.extend_from_slice(&bitmap[last_pos..range_end]);
+
+      self.write_vec(&cmd);
+      self.flush_buf();
+      self.print_bytes(&[0x0c]);
+      cmd.clear();
+
+      // self.print_bytes(&bitmap[last_pos..range_end]);
+      last_height += 32;
+      last_pos = range_end;
+      if range_end == bitmap.len() {
+        break
+      }
+      std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
     // cmd.extend_from_slice(bitmap);
     // cmd.extend_from_slice("\r\n".as_bytes());
 
+    #[cfg(debug_assertions)]
     for i in 0..height {
       for j in 0..w_bytes {
         let pos = j + (i as usize * w_bytes);
         // print!(" {}: ", pos);
-        let byte = &bitmap[pos];
-        #[cfg(debug_assertions)]
-        print!("{:08b}", *byte);
+        // let byte = &bitmap[pos];
+        print!("{:08b}", &bitmap[pos]);
         // cmd.push(byte);
       }
-      #[cfg(debug_assertions)]
       print!("\n");
     }
 
-    cmd.append(&mut Vec::from(bitmap));
-    self.write_vec(&cmd);
+    // cmd.append(&mut Vec::from(bitmap));
+    // self.write_vec(&cmd);
+    // self.flush_buf();
 
     #[cfg(debug_assertions)]
     println!("dimensions: {:?}x{:?}", width, height);
@@ -177,7 +205,7 @@ impl Printer {
   ///
   /// Uses the Floyd-Steinberg dithering algorithm as described on:
   ///
-  /// https://en.wikipedia.org/wiki/Floyd%E2%80%93Steinberg_dithering
+  /// <https://en.wikipedia.org/wiki/Floyd%E2%80%93Steinberg_dithering>
   ///
   /// # Panics
   /// - if the file cannot be found
@@ -226,6 +254,7 @@ impl Printer {
     };
     let height: u32 = (img.height() as f32 * (width as f32/ img.width() as f32)) as u32;
     img = img.resize(width, height, imageops::Triangle);
+    img.adjust_contrast(-90.0);
     let img = img.to_luma8();
     let mut dithered_img = image::GrayImage::new(width + 1, height + 1);
 
@@ -247,7 +276,7 @@ impl Printer {
       }
       let error: i32;
       match get_pixel(&grayscale, pos.0 as i32, pos.1 as i32) {
-        x if x> 128 => {
+        x if x> 127 => {
           set_pixel(&mut grayscale, pos.0 as i32, pos.1 as i32, 255);
           dithered_img.put_pixel(pos.0, pos.1, Luma([255]));
           error = x as i32 - 255;
@@ -273,9 +302,43 @@ impl Printer {
       Err(e) => panic!("error saving: {:?}", e)
     }
 
-    #[cfg(debug_assertions)]
-    println!("{:?}", bitmap.as_slice());
-    self.print_bitmap(width, height, bitmap.get_width_in_bytes(), bitmap.as_slice());
+    self.print_bitmap(width as u16, height as u16, bitmap.get_width_in_bytes(), bitmap.as_slice());
+  }
+}
+
+#[cfg(debug_assertions)]
+impl Printer {
+  pub fn test_bitmap_buffer_size(&mut self) {
+    let step_size = 1;
+    let mut bitmap: Vec<u8> = Vec::with_capacity(32*256);
+    let mut i = 100;
+    for k in 0..i*32 {
+      bitmap.push((k & 1 & (k/32 & 1)) as u8 * 255);
+    }
+    let mut input = String::new();
+    loop {
+      for k in 0..=255 {
+        bitmap.push(k & 1 & (i & 1) as u8 * 255);
+      }
+      println!("Printing 256 X {} bitmap", i);
+      self.print_bitmap(256, i, 32, bitmap.as_slice());
+      println!("Worked? Y/n");
+      std::io::stdin().read_line(&mut input).expect("error: unable to read stdin!");
+      match input.trim().to_lowercase().as_str() {
+        "y" => {
+          i += step_size;
+          continue;
+        },
+        "n" => {
+          println!("max size reached! size in bytes: {}", 32 * (i - step_size));
+          break;
+        },
+        _ => {
+          i += step_size;
+          continue;
+        }
+      }
+    }
   }
 }
 
