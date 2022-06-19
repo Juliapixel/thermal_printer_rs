@@ -255,7 +255,24 @@ impl Printer {
     let height: u32 = (img.height() as f32 * (width as f32/ img.width() as f32)) as u32;
     img = img.resize(width, height, imageops::Triangle);
     img.adjust_contrast(-90.0);
-    let img = img.to_luma8();
+    let mut alphaimg = img.to_rgba32f();
+    let mut img: image::ImageBuffer<Luma<u8>, Vec<u8>> = image::ImageBuffer::new(img.width(), img.height());
+    for pix in alphaimg.enumerate_pixels_mut() {
+      let mut max: f32 = 0.0;
+      let mut min: f32 = 1.0;
+      for channel in 0..=2 {
+        pix.2.channels_mut()[channel] = pix.2.channels()[channel] * pix.2.channels()[3] + (1.0 * (1.0 - pix.2.channels()[3]));
+        if pix.2.channels()[channel] < min {
+          min = pix.2.channels()[channel];
+        }
+        if pix.2.channels()[channel] > max {
+          max = pix.2.channels()[channel];
+        }
+      }
+      let lightness: u8 = (((max + min) / 2.0) * 255.0).round() as u8;
+      img.put_pixel(pix.0, pix.1, Luma([lightness]));
+    }
+
     let mut dithered_img = image::GrayImage::new(width + 1, height + 1);
 
     let mut grayscale = vec![vec![0u8 ; height as usize]; width as usize];
