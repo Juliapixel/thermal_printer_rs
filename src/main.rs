@@ -10,7 +10,7 @@ fn main() {
   #[cfg(debug_assertions)]
   env::set_var("RUST_BACKTRACE", "1");
 
-  let cmd = clap::Command::new("thermal_printer")
+  let mut cmd = clap::Command::new("thermal_printer")
     .arg(Arg::new("path_to_printer")
       .short('p')
       .long("path")
@@ -35,7 +35,7 @@ fn main() {
     .arg(Arg::new("qr_code_width")
       .long("qr_width")
       .takes_value(true)
-      .default_value("5")
+      .default_value("8")
       .help("width of the qr code, must be in range 0..16")
     )
     .arg(Arg::new("qr_code")
@@ -60,21 +60,43 @@ fn main() {
       .long("justification")
       .default_value("left")
       .help("must be either \"left\", \"center\" or \"right\", falls back to \"left\"")
-    ).get_matches()
+    )
   ;
+  #[cfg(debug_assertions)]
+  {
+    cmd = cmd.arg(Arg::new("test_buffer_size")
+      .long("test_buffer_size")
+      .takes_value(false)
+      .help("tests the max bitmap buffer size supported by the printer, in chunks of 32 bytes")
+      )
+    ;
+  }
+  let args = cmd.get_matches();
 
   let cur_dir = env::current_dir().expect("error getting cwd!").to_str().expect("error turning path into string!").to_owned();
 
-  let mut printer = printing::Printer::new(cmd.get_one::<String>("path_to_printer").expect("path argument invalid!"));
+  let printer_path = {
+    let path_arg = args.get_one::<String>("path_to_printer").expect("path argument invalid!");
+    String::from("\\\\127.0.0.1\\") + path_arg
+  };
+  let mut printer = printing::Printer::new(&printer_path);
 
-  match cmd.get_one::<String>("justification").unwrap().to_lowercase().as_str() {
+  match args.get_one::<String>("justification").unwrap().to_lowercase().as_str() {
     "left" => printer.set_justification(0),
     "center" => printer.set_justification(1),
     "right" => printer.set_justification(2),
     _ => printer.set_justification(0)
   }
 
-  if let Some(path) = cmd.get_one::<PathBuf>("input") {
+  #[cfg(debug_assertions)]
+  {
+    if args.contains_id("test_buffer_size") {
+      printer.test_bitmap_buffer_size();
+      return
+    }
+  }
+
+  if let Some(path) = args.get_one::<PathBuf>("input") {
     let image_path: &str;
 
     // if Path::new(&path).exists() {
@@ -86,20 +108,20 @@ fn main() {
     // }
     if path.exists() {
       image_path = path.to_str().expect("error parsing image path!");
-      printer.print_image(image_path, cmd.get_one::<String>("width").expect("error parsing image width!").parse().expect("error parsing image width!"));
+      printer.print_image(image_path, args.get_one::<String>("width").expect("error parsing image width!").parse().expect("error parsing image width!"));
     }
     return
   }
 
-  if let Some(qr_code_text) = cmd.get_one::<String>("qr_code") {
-    printer.print_qr_code(cmd.get_one::<String>("qr_code_width").expect("error parsing qr code width!").parse().expect("qr code width not a number!"), qr_code_text.as_bytes());
-    if cmd.contains_id("debug") {
+  if let Some(qr_code_text) = args.get_one::<String>("qr_code") {
+    printer.print_qr_code(args.get_one::<String>("qr_code_width").expect("error parsing qr code width!").parse().expect("qr code width not a number!"), qr_code_text.as_bytes());
+    if args.contains_id("debug") {
       printer.println(qr_code_text);
     }
     return
   }
 
-  if let Some(text) = cmd.get_one::<String>("text") {
+  if let Some(text) = args.get_one::<String>("text") {
     printer.println(text);
     return
   }
