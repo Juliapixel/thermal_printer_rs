@@ -3,7 +3,7 @@
 pub mod printing;
 pub mod bitimage;
 
-use std::{env, path::PathBuf};
+use std::{env, path::{PathBuf, Path}, fs::File, io::{BufReader}};
 use clap::Arg;
 
 fn main() {
@@ -109,7 +109,10 @@ fn main() {
     }
 
     if args.contains_id("debug") {
-      printer.set_text_mode(true, true, true, false);
+      let file_path = Path::new(r"D:\geral\Caio\meus_programas\thermal_printer\README.md");
+      let md_file = File::open(file_path).unwrap();
+      let md_lines = BufReader::new(md_file);
+      printer.print_markdown(md_lines);
     }
   }
 

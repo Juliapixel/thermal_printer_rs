@@ -1,6 +1,8 @@
-use std::{fs::File, path::Path, io::Write};
+use std::{fs::File, path::Path, io::{Write, BufReader, BufRead}};
 use image::{Luma, imageops, Pixel};
+use regex::{self, Regex};
 use crate::bitimage::BitImage;
+
 
 /// # About
 /// Base struct used for printing
@@ -109,18 +111,26 @@ impl Printer {
   }
 
   /// # About
-  /// Must be either "left", "center", or "right" (case insensitive).
+  /// 0: left
   ///
-  /// Falls back to "left" if not one of those
+  /// 1: center
+  ///
+  /// 2: right
   /// # Example
   /// ```
-  /// printer.set_justification("center");
+  /// printer.set_justification(1);
   /// ```
   pub fn set_justification(&mut self, value: u8) {
     self.print_bytes(&[ESC, 0x61, value]);
   }
 
-  pub fn set_text_mode(&mut self, double_width: bool, double_height: bool, bold: bool, underline: bool) {
+  pub fn set_text_mode(
+    &mut self,
+    double_width: bool,
+    double_height: bool,
+    bold: bool,
+    underline: bool
+  ) {
     let mut msg: Vec<u8> = Vec::from([ESC, b'!']);
     let mut settings: u8 = 0;
     if double_width {
@@ -173,7 +183,13 @@ impl Printer {
   /// ];
   /// printer.print_bitmap(width = 16, height = 8, w_bytes = 2, &bitmap);
   /// ```
-  pub fn print_bitmap(&mut self, width: u16, height: u16, w_bytes: usize, bitmap: &[u8]) {
+  pub fn print_bitmap(
+    &mut self,
+    width: u16,
+    height: u16,
+    w_bytes: usize,
+    bitmap: &[u8]
+  ) {
     let flush_height: u16 = 64;
     let mut cmd: Vec<u8> = Vec::with_capacity(4 + (w_bytes * flush_height as usize));
     // self.print_bytes(&[GS, 0x76, 0x30, 0x00]);
@@ -229,9 +245,36 @@ impl Printer {
     println!("dimensions: {:?}x{:?}", width, height);
   }
 
+  pub fn print_markdown(&mut self, md: BufReader<File>) {
+    let reg_title = Regex::new(r"^#{1} (.*)").unwrap();
+    let reg_subtitle = Regex::new(r"^#{2} (.*)").unwrap();
+    let reg_subsubtitle = Regex::new(r"^#{3,} (.*)").unwrap();
+    self.set_justification(0);
+    for line_res in md.lines() {
+      let mut dwidth = false;
+      let mut dheight = false;
+      let mut bold = false;
+      let underline = false;
+      let liner = match line_res {
+        Ok(o) => o,
+        Err(_) => panic!("bruh!")
+      };
+      if reg_title.is_match(&liner) {
+        dwidth = true;
+        dheight = true
+      } else if reg_subtitle.is_match(&liner) {
+        dheight = true;
+      } else if reg_subsubtitle.is_match(&liner) {
+        bold = true;
+      }
+      self.set_text_mode(dwidth, dheight, bold, underline);
+      self.println(&liner);
+    }
+  }
+
   /// # About
-  /// Takes in the path to an image file, scales the image to the width provided
-  /// and turns it into a black & white image.
+  /// Takes in the path to an image file, scales the image to the width
+  /// provided and turns it into a black & white image.
   ///
   /// Uses the Floyd-Steinberg dithering algorithm as described on:
   ///
@@ -267,7 +310,13 @@ impl Printer {
       }
     }
 
-    fn add_error(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, divided_error: &i32, importance: i32) {
+    fn add_error(
+        vector: &mut Vec<Vec<u8>>,
+        x: i32,
+        y: i32,
+        divided_error: &i32,
+        importance: i32
+    ) {
       let error: i32 = divided_error * importance;
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
         if let Some(row) = vector.get_mut(x as usize) {
@@ -318,7 +367,10 @@ impl Printer {
     }
 
     for pos in img.enumerate_pixels() {
-      if pos.0 > grayscale.len() as u32 || pos.1 > grayscale.get(0).unwrap().len() as u32 {
+      if
+        pos.0 > grayscale.len() as u32 ||
+        pos.1 > grayscale.get(0).unwrap().len() as u32
+      {
         continue;
       }
       let error: i32;
