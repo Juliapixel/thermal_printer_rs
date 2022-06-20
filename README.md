@@ -17,6 +17,7 @@ Made entirely using Rust!
 - Graphing
 - Custom fonts
 - Support for other platforms
+- Markdown support
 ## Usage
 ### On windows:
 - Connect your thermal printer to your windows computer using the generic text-only printer driver.
