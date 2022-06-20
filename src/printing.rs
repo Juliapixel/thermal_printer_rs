@@ -15,8 +15,8 @@ pub struct Printer {
 }
 
 
-const GS: u8 = 0x1d;
-const ESC: u8 = 0x1b;
+pub const GS: u8 = 0x1d;
+pub const ESC: u8 = 0x1b;
 
 impl Printer {
 
@@ -80,7 +80,17 @@ impl Printer {
     self.flush_buf();
   }
 
-  fn print_bytes(&mut self, message: &[u8]) {
+  /// # About
+  /// Funcion used to send an array of bytes to the printer and flush its buffer.
+  /// # Warning
+  /// Sending a sequence of bytes might cause the printer to stop working,
+  /// requiring a reboot.
+  ///
+  /// Only use this if you know what you're doing.
+  ///
+  /// # Tip
+  /// use the constants ``printing::GS`` and ``printing::ESC`` as escape characters.
+  pub fn print_bytes(&mut self, message: &[u8]) {
     match self.file_handle.write_all(message) {
       Ok(_) => (),
       Err(e) => panic!("error: {}", e)
@@ -108,6 +118,26 @@ impl Printer {
   /// ```
   pub fn set_justification(&mut self, value: u8) {
     self.print_bytes(&[ESC, 0x61, value]);
+  }
+
+  pub fn set_text_mode(&mut self, double_width: bool, double_height: bool, bold: bool, underline: bool) {
+    let mut msg: Vec<u8> = Vec::from([ESC, b'!']);
+    let mut settings: u8 = 0;
+    if double_width {
+      settings |= 0b00100000;
+    }
+    if double_height {
+      settings |= 0b00010000;
+    }
+    if bold {
+      settings |= 0b00001000;
+    }
+    if underline {
+      settings |= 0b00000001;
+    }
+    msg.push(settings);
+    self.write_vec(&msg);
+    self.flush_buf();
   }
 
   pub fn print_qr_code(&mut self, size: u8, data: &[u8]) {
