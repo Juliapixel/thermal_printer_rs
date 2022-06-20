@@ -44,11 +44,6 @@ fn main() {
       .takes_value(true)
       .help("print a qr code with the given text encoded into it")
     )
-    .arg(Arg::new("debug")
-     .short('d')
-     .long("debug")
-     .takes_value(false)
-    )
     .arg(Arg::new("text")
       .short('t')
       .long("text")
@@ -58,8 +53,14 @@ fn main() {
     .arg(Arg::new("justification")
       .short('j')
       .long("justification")
+      .takes_value(true)
       .default_value("left")
       .help("must be either \"left\", \"center\" or \"right\", falls back to \"left\"")
+    )
+    .arg(Arg::new("reset")
+    .long("reset")
+    .takes_value(false)
+    .help("resets the printer back to its initial state\nmust be used alone")
     )
   ;
   #[cfg(debug_assertions)]
@@ -68,6 +69,12 @@ fn main() {
       .long("test_buffer_size")
       .takes_value(false)
       .help("tests the max bitmap buffer size supported by the printer, in chunks of 32 bytes")
+      )
+      .arg(Arg::new("debug")
+      .short('d')
+      .long("debug")
+      .takes_value(false)
+      .help("used in development to send specific commands to the printer\nonly use if you know what you're doing")
       )
     ;
   }
@@ -94,6 +101,15 @@ fn main() {
       printer.test_bitmap_buffer_size();
       return
     }
+
+    if args.contains_id("debug") {
+      printer.set_text_mode(true, true, true, false);
+    }
+  }
+
+  if args.contains_id("reset") {
+    printer.print_bytes(&[printing::ESC, b'@']);
+    return
   }
 
   if let Some(path) = args.get_one::<PathBuf>("input") {
