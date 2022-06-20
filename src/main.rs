@@ -62,6 +62,12 @@ fn main() {
     .takes_value(false)
     .help("resets the printer back to its initial state\nmust be used alone")
     )
+    .arg(Arg::new("dithering")
+    .long("dithering")
+    .takes_value(true)
+    .default_value("2sierra")
+    .help("select the dithering mode used to print images\navailable modes: sierra, 2sierra, fs, none\nfalls back to 2sierra")
+    )
   ;
   #[cfg(debug_assertions)]
   {
@@ -122,9 +128,15 @@ fn main() {
     // } else {
     //   panic!("error finding file!");
     // }
+    let dithering: u8 = match args.get_one::<String>("dithering").unwrap().to_lowercase().as_str() {
+      "sierra" => 2,
+      "fs" => 0,
+      "none" => 255,
+      _ => 1
+    };
     if path.exists() {
       image_path = path.to_str().expect("error parsing image path!");
-      printer.print_image(image_path, args.get_one::<String>("width").expect("error parsing image width!").parse().expect("error parsing image width!"), 2);
+      printer.print_image(image_path, args.get_one::<String>("width").expect("error parsing image width!").parse().expect("error parsing image width!"), dithering);
     }
     return
   }
