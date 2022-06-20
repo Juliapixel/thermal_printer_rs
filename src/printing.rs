@@ -188,7 +188,7 @@ impl Printer {
       let next_height = (last_height + flush_height).clamp(0, height as u16);
       let part_height: u16 = next_height - last_height;
 
-      cmd.extend_from_slice(&[GS, 0x76, 0x30, 0x00]);
+      cmd.extend_from_slice(&[GS, b'v', b'0', 0x00]);
       cmd.extend_from_slice(&self.to_two_byte(w_bytes as u16));
       cmd.extend_from_slice(&self.to_two_byte(part_height));
       cmd.extend_from_slice(&bitmap[last_pos..range_end]);
@@ -239,7 +239,7 @@ impl Printer {
   ///
   /// # Panics
   /// - if the file cannot be found
-  pub fn print_image(&mut self, path: &str, width:u32) {
+  pub fn print_image(&mut self, path: &str, width:u32, dithering: u8) {
     fn get_pixel(vector: &Vec<Vec<u8>>,x: i32, y: i32) -> u8 {
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
         if let Some(row) = vector.get(x as usize) {
@@ -267,8 +267,8 @@ impl Printer {
       }
     }
 
-    fn add_error(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, val: &i32, importance: i32) {
-      let error: i32 = (*val as f32 * (importance as f32 / 16.0)).round() as i32;
+    fn add_error(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, divided_error: &i32, importance: i32) {
+      let error: i32 = divided_error * importance;
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
         if let Some(row) = vector.get_mut(x as usize) {
           if let Some(pixel) = row.get_mut(y as usize) {
@@ -337,10 +337,41 @@ impl Printer {
         }
       };
 
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.1 as i32, &error, 7);
-      add_error(&mut grayscale, pos.0 as i32 - 1, pos.1 as i32 + 1, &error, 3);
-      add_error(&mut grayscale, pos.0 as i32, pos.1 as i32 + 1, &error, 5);
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.1 as i32 + 1, &error, 1);
+      let xpos = pos.0 as i32;
+      let ypos = pos.1 as i32;
+      match dithering {
+        0 => {
+          let div_err = error >> 4;
+          add_error(&mut grayscale, xpos + 1, ypos    , &div_err, 7);
+          add_error(&mut grayscale, xpos - 1, ypos + 1, &div_err, 3);
+          add_error(&mut grayscale, xpos    , ypos + 1, &div_err, 5);
+          add_error(&mut grayscale, xpos + 1, ypos + 1, &div_err, 1);
+        },
+        1 => {
+          let div_err = error >> 4;
+          add_error(&mut grayscale, xpos + 1, ypos    , &div_err, 4);
+          add_error(&mut grayscale, xpos + 2, ypos    , &div_err, 3);
+          add_error(&mut grayscale, xpos - 2, ypos + 1, &div_err, 1);
+          add_error(&mut grayscale, xpos - 1, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos    , ypos + 1, &div_err, 3);
+          add_error(&mut grayscale, xpos + 1, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos + 2, ypos + 1, &div_err, 1);
+        },
+        2 => {
+          let div_err = error >> 5;
+          add_error(&mut grayscale, xpos + 1, ypos    , &div_err, 5);
+          add_error(&mut grayscale, xpos + 2, ypos    , &div_err, 3);
+          add_error(&mut grayscale, xpos - 2, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos - 1, ypos + 1, &div_err, 4);
+          add_error(&mut grayscale, xpos    , ypos + 1, &div_err, 5);
+          add_error(&mut grayscale, xpos + 1, ypos + 1, &div_err, 4);
+          add_error(&mut grayscale, xpos + 2, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos - 1, ypos + 2, &div_err, 2);
+          add_error(&mut grayscale, xpos    , ypos + 2, &div_err, 3);
+          add_error(&mut grayscale, xpos + 1, ypos + 2, &div_err, 2);
+        },
+        _ => ()
+      }
     }
 
     #[cfg(debug_assertions)]

@@ -124,7 +124,7 @@ fn main() {
     // }
     if path.exists() {
       image_path = path.to_str().expect("error parsing image path!");
-      printer.print_image(image_path, args.get_one::<String>("width").expect("error parsing image width!").parse().expect("error parsing image width!"));
+      printer.print_image(image_path, args.get_one::<String>("width").expect("error parsing image width!").parse().expect("error parsing image width!"), 2);
     }
     return
   }
