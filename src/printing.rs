@@ -110,6 +110,10 @@ impl Printer {
     }
   }
 
+  pub fn reset(&mut self) {
+    self.print_bytes(&[ESC, b'@']);
+  }
+
   /// # About
   /// 0: left
   ///
@@ -249,7 +253,7 @@ impl Printer {
     let reg_title = Regex::new(r"^#{1} (.*)").unwrap();
     let reg_subtitle = Regex::new(r"^#{2} (.*)").unwrap();
     let reg_subsubtitle = Regex::new(r"^#{3,} (.*)").unwrap();
-    self.set_justification(0);
+    let reg_bold = Regex::new(r"(?:\*|\_)+([^\s][^\*\n]+[^\s])(?:\*|\_)").unwrap();
     for line_res in md.lines() {
       let mut dwidth = false;
       let mut dheight = false;
@@ -259,16 +263,20 @@ impl Printer {
         Ok(o) => o,
         Err(_) => panic!("bruh!")
       };
+      let mut text: &str = &liner;
       if reg_title.is_match(&liner) {
         dwidth = true;
-        dheight = true
+        dheight = true;
+        text = reg_title.captures(&liner).unwrap().get(1).unwrap().as_str();
       } else if reg_subtitle.is_match(&liner) {
         dheight = true;
+        text = reg_subtitle.captures(&liner).unwrap().get(1).unwrap().as_str();
       } else if reg_subsubtitle.is_match(&liner) {
         bold = true;
+        text = reg_subsubtitle.captures(&liner).unwrap().get(1).unwrap().as_str();
       }
       self.set_text_mode(dwidth, dheight, bold, underline);
-      self.println(&liner);
+      self.println(text);
     }
   }
 

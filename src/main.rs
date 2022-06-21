@@ -117,7 +117,7 @@ fn main() {
   }
 
   if args.contains_id("reset") {
-    printer.print_bytes(&[printing::ESC, b'@']);
+    printer.reset();
     return
   }
 
