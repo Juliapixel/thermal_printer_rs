@@ -2,16 +2,15 @@
 ## About
 This program allows you to use a USB thermal printer to print text, images, barcodes and QR codes.
 
-Made entirely using Rust!
+*Made entirely using Rust!*
 ## Features
-### Checklist:
 - [x] Print text.
 - [x] Print images using the Floyd-Steinberg error diffusion dithering algorithm, preserving their details.
 - [x] Image scaling.
 - [x] Print QR Codes.
 - [ ] Print Bar Codes.
 - [x] Set justification for text, images, and QR Codes.
-- [ ] Change text settings to make it big, bold, italics, etc.
+- [x] Change text settings to make it big, bold, italics, etc.
 
 ### Maybe one day:
 - Graphing
