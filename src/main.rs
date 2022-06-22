@@ -50,6 +50,12 @@ fn main() {
       .takes_value(true)
       .help("print the given text")
     )
+    .arg(Arg::new("markdown")
+    .long("md")
+    .takes_value(true)
+    .value_parser(clap::value_parser!(PathBuf))
+    .help("print the given markdown file")
+  )
     .arg(Arg::new("justification")
       .short('j')
       .long("justification")
@@ -109,10 +115,7 @@ fn main() {
     }
 
     if args.contains_id("debug") {
-      let file_path = Path::new(r"D:\geral\Caio\meus_programas\thermal_printer\README.md");
-      let md_file = File::open(file_path).unwrap();
-      let md_lines = BufReader::new(md_file);
-      printer.print_markdown(md_lines);
+      todo!()
     }
   }
 
@@ -121,16 +124,16 @@ fn main() {
     return
   }
 
+  if let Some(path) = args.get_one::<PathBuf>("markdown") {
+    if path.to_str().unwrap().ends_with(".md") {
+      let md_file = File::open(path).unwrap();
+      let md_lines = BufReader::new(md_file);
+      printer.print_markdown(md_lines);
+    }
+  }
+
   if let Some(path) = args.get_one::<PathBuf>("input") {
     let image_path: &str;
-
-    // if Path::new(&path).exists() {
-    //   image_path = path.to_owned();
-    // } else if Path::new(&(cur_dir.clone() + &path)).exists() {
-    //   image_path = cur_dir + &path
-    // } else {
-    //   panic!("error finding file!");
-    // }
     let dithering: u8 = match args.get_one::<String>("dithering").unwrap().to_lowercase().as_str() {
       "sierra" => 2,
       "fs" => 0,
@@ -156,8 +159,4 @@ fn main() {
     printer.println(text);
     return
   }
-
-  // printer.print_qr_code(10, b"https://oisumida.rs/");
-
-  // printer.print_bitmap(128, 64, 16, &printing::examples::BITMAP);
-  }
+}

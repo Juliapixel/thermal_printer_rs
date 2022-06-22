@@ -253,7 +253,8 @@ impl Printer {
     let reg_title = Regex::new(r"^#{1} (.*)").unwrap();
     let reg_subtitle = Regex::new(r"^#{2} (.*)").unwrap();
     let reg_subsubtitle = Regex::new(r"^#{3,} (.*)").unwrap();
-    let reg_bold = Regex::new(r"(?:\*|\_)+([^\s][^\*\n]+[^\s])(?:\*|\_)").unwrap();
+    let reg_bold = Regex::new(r"(.*?)(?:\*|_)+([^\s][^\*\n]+[^\s])(?:\*|_)([^\*\n]*)").unwrap();
+    let reg_checkmark = Regex::new(r"- (\[[ x]\].+)").unwrap();
     for line_res in md.lines() {
       let mut dwidth = false;
       let mut dheight = false;
@@ -264,19 +265,39 @@ impl Printer {
         Err(_) => panic!("bruh!")
       };
       let mut text: &str = &liner;
-      if reg_title.is_match(&liner) {
+
+      // start testing for matches for linewide markdown syntax
+      if let Some(capture) = reg_title.captures(&liner) {
         dwidth = true;
         dheight = true;
-        text = reg_title.captures(&liner).unwrap().get(1).unwrap().as_str();
-      } else if reg_subtitle.is_match(&liner) {
+        text = capture.get(1).unwrap().as_str();
+      } else if let Some(capture) = reg_subtitle.captures(&liner) {
         dheight = true;
-        text = reg_subtitle.captures(&liner).unwrap().get(1).unwrap().as_str();
-      } else if reg_subsubtitle.is_match(&liner) {
+        text = capture.get(1).unwrap().as_str();
+      } else if let Some(capture) = reg_subsubtitle.captures(&liner) {
         bold = true;
-        text = reg_subsubtitle.captures(&liner).unwrap().get(1).unwrap().as_str();
+        text = capture.get(1).unwrap().as_str();
+      } else if let Some(capture) = reg_checkmark.captures(&liner) {
+        text = capture.get(1).unwrap().as_str();
       }
-      self.set_text_mode(dwidth, dheight, bold, underline);
-      self.println(text);
+
+      // test for inline markdown syntax
+      if reg_bold.is_match(text) {
+        for cap in reg_bold.captures_iter(text) {
+          self.set_text_mode(dwidth, dheight, false, false);
+          self.print_bytes(cap[1].as_bytes());
+          self.set_text_mode(dwidth, dheight, true, false);
+          self.print_bytes(cap[2].as_bytes());
+          self.set_text_mode(dwidth, dheight, false, false);
+          self.print_bytes(cap[3].as_bytes());
+          self.print_bytes(&[0x0c]);
+        }
+      } else {
+        self.set_text_mode(dwidth, dheight, bold, underline);
+        self.println(text);
+      }
+
+
     }
   }
 
