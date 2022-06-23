@@ -3,7 +3,7 @@
 pub mod printing;
 pub mod bitimage;
 
-use std::{env, path::{PathBuf, Path}, fs::File, io::{BufReader}};
+use std::{env, path::PathBuf, fs::File, io::{BufReader}};
 use clap::Arg;
 
 fn main() {
