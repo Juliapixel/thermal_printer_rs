@@ -455,12 +455,6 @@ impl Printer {
       }
     }
 
-    #[cfg(debug_assertions)]
-    match dithered_img.save("D:\\geral\\Caio\\meus_programas\\thermal_printer\\output_dithered.png") {
-      Ok(_) => (),
-      Err(e) => panic!("error saving: {:?}", e)
-    }
-
     self.print_bitmap(width as u16, height as u16, bitmap.get_width_in_bytes(), bitmap.as_slice());
   }
 }
