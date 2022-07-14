@@ -1,6 +1,8 @@
-use std::{fs::File, path::Path, io::Write};
+use std::{fs::File, path::Path, io::{Write, BufReader, BufRead}};
 use image::{Luma, imageops, Pixel};
+use regex::{self, Regex};
 use crate::bitimage::BitImage;
+
 
 /// # About
 /// Base struct used for printing
@@ -15,8 +17,8 @@ pub struct Printer {
 }
 
 
-const GS: u8 = 0x1d;
-const ESC: u8 = 0x1b;
+pub const GS: u8 = 0x1d;
+pub const ESC: u8 = 0x1b;
 
 impl Printer {
 
@@ -80,7 +82,17 @@ impl Printer {
     self.flush_buf();
   }
 
-  fn print_bytes(&mut self, message: &[u8]) {
+  /// # About
+  /// Funcion used to send an array of bytes to the printer and flush its buffer.
+  /// # Warning
+  /// Sending a sequence of bytes might cause the printer to stop working,
+  /// requiring a reboot.
+  ///
+  /// Only use this if you know what you're doing.
+  ///
+  /// # Tip
+  /// use the constants ``printing::GS`` and ``printing::ESC`` as escape characters.
+  pub fn print_bytes(&mut self, message: &[u8]) {
     match self.file_handle.write_all(message) {
       Ok(_) => (),
       Err(e) => panic!("error: {}", e)
@@ -89,7 +101,7 @@ impl Printer {
   }
 
   /// # About
-  /// Simlpy puts the contents of the supplied vector into the buffer.
+  /// Simply puts the contents of the supplied vector into the buffer.
   ///
   /// Requires flushing.
   fn write_vec(&mut self, bytes: &Vec<u8>) {
@@ -98,16 +110,48 @@ impl Printer {
     }
   }
 
+  pub fn reset(&mut self) {
+    self.print_bytes(&[ESC, b'@']);
+  }
+
   /// # About
-  /// Must be either "left", "center", or "right" (case insensitive).
+  /// 0: left
   ///
-  /// Falls back to "left" if not one of those
+  /// 1: center
+  ///
+  /// 2: right
   /// # Example
   /// ```
-  /// printer.set_justification("center");
+  /// printer.set_justification(1);
   /// ```
   pub fn set_justification(&mut self, value: u8) {
     self.print_bytes(&[ESC, 0x61, value]);
+  }
+
+  pub fn set_text_mode(
+    &mut self,
+    double_width: bool,
+    double_height: bool,
+    bold: bool,
+    underline: bool
+  ) {
+    let mut msg: Vec<u8> = Vec::from([ESC, b'!']);
+    let mut settings: u8 = 0;
+    if double_width {
+      settings |= 0b00100000;
+    }
+    if double_height {
+      settings |= 0b00010000;
+    }
+    if bold {
+      settings |= 0b00001000;
+    }
+    if underline {
+      settings |= 0b00000001;
+    }
+    msg.push(settings);
+    self.write_vec(&msg);
+    self.flush_buf();
   }
 
   pub fn print_qr_code(&mut self, size: u8, data: &[u8]) {
@@ -143,45 +187,131 @@ impl Printer {
   /// ];
   /// printer.print_bitmap(width = 16, height = 8, w_bytes = 2, &bitmap);
   /// ```
-  pub fn print_bitmap(&mut self, width:u32, height: u32, w_bytes: usize, bitmap: &[u8]) {
-    let mut cmd: Vec<u8> = Vec::from([GS, 0x76, 0x30, 0x00]);
-    if width > 382 { return };
-    cmd.extend_from_slice(self.to_two_byte(w_bytes as u16).as_ref());
-    cmd.extend_from_slice(self.to_two_byte(height as u16).as_ref());
+  pub fn print_bitmap(
+    &mut self,
+    width: u16,
+    height: u16,
+    w_bytes: usize,
+    bitmap: &[u8]
+  ) {
+    let flush_height: u16 = 64;
+    let mut cmd: Vec<u8> = Vec::with_capacity(4 + (w_bytes * flush_height as usize));
+    // self.print_bytes(&[GS, 0x76, 0x30, 0x00]);
+    // if width > 382 { return };
+    // self.print_bytes(self.to_two_byte(w_bytes as u16).as_ref());
+    // self.print_bytes(self.to_two_byte(height as u16).as_ref());
+
+    let mut last_pos: usize = 0;
+    let mut last_height: u16 = 0;
+    loop {
+      let range_end = (last_pos + (w_bytes * flush_height as usize)).clamp(0, bitmap.len());
+      let next_height = (last_height + flush_height).clamp(0, height as u16);
+      let part_height: u16 = next_height - last_height;
+
+      cmd.extend_from_slice(&[GS, b'v', b'0', 0x00]);
+      cmd.extend_from_slice(&self.to_two_byte(w_bytes as u16));
+      cmd.extend_from_slice(&self.to_two_byte(part_height));
+      cmd.extend_from_slice(&bitmap[last_pos..range_end]);
+
+      self.write_vec(&cmd);
+      self.flush_buf();
+      self.print_bytes(&[0x0c]);
+      cmd.clear();
+
+      // self.print_bytes(&bitmap[last_pos..range_end]);
+      last_height += 32;
+      last_pos = range_end;
+      if range_end == bitmap.len() {
+        break
+      }
+      std::thread::sleep(std::time::Duration::from_millis(1500));
+    }
     // cmd.extend_from_slice(bitmap);
     // cmd.extend_from_slice("\r\n".as_bytes());
 
+    #[cfg(debug_assertions)]
     for i in 0..height {
       for j in 0..w_bytes {
         let pos = j + (i as usize * w_bytes);
         // print!(" {}: ", pos);
-        let byte = &bitmap[pos];
-        #[cfg(debug_assertions)]
-        print!("{:08b}", *byte);
+        // let byte = &bitmap[pos];
+        print!("{:08b}", &bitmap[pos]);
         // cmd.push(byte);
       }
-      #[cfg(debug_assertions)]
       print!("\n");
     }
 
-    cmd.append(&mut Vec::from(bitmap));
-    self.write_vec(&cmd);
+    // cmd.append(&mut Vec::from(bitmap));
+    // self.write_vec(&cmd);
+    // self.flush_buf();
 
     #[cfg(debug_assertions)]
     println!("dimensions: {:?}x{:?}", width, height);
   }
 
+  pub fn print_markdown(&mut self, md: BufReader<File>) {
+    let reg_title = Regex::new(r"^#{1} (.*)").unwrap();
+    let reg_subtitle = Regex::new(r"^#{2} (.*)").unwrap();
+    let reg_subsubtitle = Regex::new(r"^#{3,} (.*)").unwrap();
+    let reg_bold = Regex::new(r"(.*?)(?:\*|_)+([^\s][^\*\n]+[^\s])(?:\*|_)([^\*\n]*)").unwrap();
+    let reg_checkmark = Regex::new(r"- (\[[ x]\].+)").unwrap();
+    for line_res in md.lines() {
+      let mut dwidth = false;
+      let mut dheight = false;
+      let mut bold = false;
+      let underline = false;
+      let liner = match line_res {
+        Ok(o) => o,
+        Err(_) => panic!("bruh!")
+      };
+      let mut text: &str = &liner;
+
+      // start testing for matches for linewide markdown syntax
+      if let Some(capture) = reg_title.captures(&liner) {
+        dwidth = true;
+        dheight = true;
+        text = capture.get(1).unwrap().as_str();
+      } else if let Some(capture) = reg_subtitle.captures(&liner) {
+        dheight = true;
+        text = capture.get(1).unwrap().as_str();
+      } else if let Some(capture) = reg_subsubtitle.captures(&liner) {
+        bold = true;
+        text = capture.get(1).unwrap().as_str();
+      } else if let Some(capture) = reg_checkmark.captures(&liner) {
+        text = capture.get(1).unwrap().as_str();
+      }
+
+      // test for inline markdown syntax
+      if reg_bold.is_match(text) {
+        for cap in reg_bold.captures_iter(text) {
+          self.set_text_mode(dwidth, dheight, false, false);
+          self.print_bytes(cap[1].as_bytes());
+          self.set_text_mode(dwidth, dheight, true, false);
+          self.print_bytes(cap[2].as_bytes());
+          self.set_text_mode(dwidth, dheight, false, false);
+          self.print_bytes(cap[3].as_bytes());
+          self.print_bytes(&[0x0c]);
+        }
+      } else {
+        self.set_text_mode(dwidth, dheight, bold, underline);
+        self.println(text);
+      }
+
+
+    }
+  }
+
   /// # About
-  /// Takes in the path to an image file, scales the image to the width provided
-  /// and turns it into a black & white image.
+  /// Takes in the path to an image file, scales the image to the width
+  /// provided and turns it into a black & white image.
   ///
   /// Uses the Floyd-Steinberg dithering algorithm as described on:
   ///
-  /// https://en.wikipedia.org/wiki/Floyd%E2%80%93Steinberg_dithering
+  /// <https://en.wikipedia.org/wiki/Floyd%E2%80%93Steinberg_dithering>
   ///
   /// # Panics
   /// - if the file cannot be found
-  pub fn print_image(&mut self, path: &str, width:u32) {
+  pub fn print_image(&mut self, path: &str, width:u32, dithering: u8) {
     fn get_pixel(vector: &Vec<Vec<u8>>,x: i32, y: i32) -> u8 {
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
         if let Some(row) = vector.get(x as usize) {
@@ -209,8 +339,14 @@ impl Printer {
       }
     }
 
-    fn add_error(vector: &mut Vec<Vec<u8>>,x: i32, y: i32, val: &i32, importance: i32) {
-      let error: i32 = (*val as f32 * (importance as f32 / 16.0)).round() as i32;
+    fn add_error(
+        vector: &mut Vec<Vec<u8>>,
+        x: i32,
+        y: i32,
+        divided_error: &i32,
+        importance: i32
+    ) {
+      let error: i32 = divided_error * importance;
       if x >= 0 && x < vector.len() as i32 && y >= 0 && y < vector.get(0).unwrap().len() as i32 {
         if let Some(row) = vector.get_mut(x as usize) {
           if let Some(pixel) = row.get_mut(y as usize) {
@@ -226,7 +362,25 @@ impl Printer {
     };
     let height: u32 = (img.height() as f32 * (width as f32/ img.width() as f32)) as u32;
     img = img.resize(width, height, imageops::Triangle);
-    let img = img.to_luma8();
+    img.adjust_contrast(-90.0);
+    let mut alphaimg = img.to_rgba32f();
+    let mut img: image::ImageBuffer<Luma<u8>, Vec<u8>> = image::ImageBuffer::new(img.width(), img.height());
+    for pix in alphaimg.enumerate_pixels_mut() {
+      let mut max: f32 = 0.0;
+      let mut min: f32 = 1.0;
+      for channel in 0..=2 {
+        pix.2.channels_mut()[channel] = pix.2.channels()[channel] * pix.2.channels()[3] + (1.0 * (1.0 - pix.2.channels()[3]));
+        if pix.2.channels()[channel] < min {
+          min = pix.2.channels()[channel];
+        }
+        if pix.2.channels()[channel] > max {
+          max = pix.2.channels()[channel];
+        }
+      }
+      let lightness: u8 = (((max + min) / 2.0) * 255.0).round() as u8;
+      img.put_pixel(pix.0, pix.1, Luma([lightness]));
+    }
+
     let mut dithered_img = image::GrayImage::new(width + 1, height + 1);
 
     let mut grayscale = vec![vec![0u8 ; height as usize]; width as usize];
@@ -242,12 +396,15 @@ impl Printer {
     }
 
     for pos in img.enumerate_pixels() {
-      if pos.0 > grayscale.len() as u32 || pos.1 > grayscale.get(0).unwrap().len() as u32 {
+      if
+        pos.0 > grayscale.len() as u32 ||
+        pos.1 > grayscale.get(0).unwrap().len() as u32
+      {
         continue;
       }
       let error: i32;
       match get_pixel(&grayscale, pos.0 as i32, pos.1 as i32) {
-        x if x> 128 => {
+        x if x> 127 => {
           set_pixel(&mut grayscale, pos.0 as i32, pos.1 as i32, 255);
           dithered_img.put_pixel(pos.0, pos.1, Luma([255]));
           error = x as i32 - 255;
@@ -261,21 +418,80 @@ impl Printer {
         }
       };
 
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.1 as i32, &error, 7);
-      add_error(&mut grayscale, pos.0 as i32 - 1, pos.1 as i32 + 1, &error, 3);
-      add_error(&mut grayscale, pos.0 as i32, pos.1 as i32 + 1, &error, 5);
-      add_error(&mut grayscale, pos.0 as i32 + 1, pos.1 as i32 + 1, &error, 1);
+      let xpos = pos.0 as i32;
+      let ypos = pos.1 as i32;
+      match dithering {
+        0 => {
+          let div_err = error >> 4;
+          add_error(&mut grayscale, xpos + 1, ypos    , &div_err, 7);
+          add_error(&mut grayscale, xpos - 1, ypos + 1, &div_err, 3);
+          add_error(&mut grayscale, xpos    , ypos + 1, &div_err, 5);
+          add_error(&mut grayscale, xpos + 1, ypos + 1, &div_err, 1);
+        },
+        1 => {
+          let div_err = error >> 4;
+          add_error(&mut grayscale, xpos + 1, ypos    , &div_err, 4);
+          add_error(&mut grayscale, xpos + 2, ypos    , &div_err, 3);
+          add_error(&mut grayscale, xpos - 2, ypos + 1, &div_err, 1);
+          add_error(&mut grayscale, xpos - 1, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos    , ypos + 1, &div_err, 3);
+          add_error(&mut grayscale, xpos + 1, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos + 2, ypos + 1, &div_err, 1);
+        },
+        2 => {
+          let div_err = error >> 5;
+          add_error(&mut grayscale, xpos + 1, ypos    , &div_err, 5);
+          add_error(&mut grayscale, xpos + 2, ypos    , &div_err, 3);
+          add_error(&mut grayscale, xpos - 2, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos - 1, ypos + 1, &div_err, 4);
+          add_error(&mut grayscale, xpos    , ypos + 1, &div_err, 5);
+          add_error(&mut grayscale, xpos + 1, ypos + 1, &div_err, 4);
+          add_error(&mut grayscale, xpos + 2, ypos + 1, &div_err, 2);
+          add_error(&mut grayscale, xpos - 1, ypos + 2, &div_err, 2);
+          add_error(&mut grayscale, xpos    , ypos + 2, &div_err, 3);
+          add_error(&mut grayscale, xpos + 1, ypos + 2, &div_err, 2);
+        },
+        _ => ()
+      }
     }
 
-    #[cfg(debug_assertions)]
-    match dithered_img.save("D:\\geral\\Caio\\meus_programas\\thermal_printer\\output_dithered.png") {
-      Ok(_) => (),
-      Err(e) => panic!("error saving: {:?}", e)
-    }
+    self.print_bitmap(width as u16, height as u16, bitmap.get_width_in_bytes(), bitmap.as_slice());
+  }
+}
 
-    #[cfg(debug_assertions)]
-    println!("{:?}", bitmap.as_slice());
-    self.print_bitmap(width, height, bitmap.get_width_in_bytes(), bitmap.as_slice());
+#[cfg(debug_assertions)]
+impl Printer {
+  pub fn test_bitmap_buffer_size(&mut self) {
+    let step_size = 1;
+    let mut bitmap: Vec<u8> = Vec::with_capacity(32*256);
+    let mut i = 100;
+    for k in 0..i*32 {
+      bitmap.push((k & 1 & (k/32 & 1)) as u8 * 255);
+    }
+    let mut input = String::new();
+    loop {
+      for k in 0..=255 {
+        bitmap.push(k & 1 & (i & 1) as u8 * 255);
+      }
+      println!("Printing 256 X {} bitmap", i);
+      self.print_bitmap(256, i, 32, bitmap.as_slice());
+      println!("Worked? Y/n");
+      std::io::stdin().read_line(&mut input).expect("error: unable to read stdin!");
+      match input.trim().to_lowercase().as_str() {
+        "y" => {
+          i += step_size;
+          continue;
+        },
+        "n" => {
+          println!("max size reached! size in bytes: {}", 32 * (i - step_size));
+          break;
+        },
+        _ => {
+          i += step_size;
+          continue;
+        }
+      }
+    }
   }
 }
 
