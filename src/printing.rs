@@ -362,7 +362,6 @@ impl Printer {
     };
     let height: u32 = (img.height() as f32 * (width as f32/ img.width() as f32)) as u32;
     img = img.resize(width, height, imageops::Triangle);
-    img.adjust_contrast(-90.0);
     let mut alphaimg = img.to_rgba32f();
     let mut img: image::ImageBuffer<Luma<u8>, Vec<u8>> = image::ImageBuffer::new(img.width(), img.height());
     for pix in alphaimg.enumerate_pixels_mut() {
