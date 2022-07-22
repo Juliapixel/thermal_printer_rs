@@ -365,18 +365,12 @@ impl Printer {
     let mut alphaimg = img.to_rgba32f();
     let mut img: image::ImageBuffer<Luma<u8>, Vec<u8>> = image::ImageBuffer::new(img.width(), img.height());
     for pix in alphaimg.enumerate_pixels_mut() {
-      let mut max: f32 = 0.0;
-      let mut min: f32 = 1.0;
+      // makes the background for transparent images white
       for channel in 0..=2 {
         pix.2.channels_mut()[channel] = pix.2.channels()[channel] * pix.2.channels()[3] + (1.0 * (1.0 - pix.2.channels()[3]));
-        if pix.2.channels()[channel] < min {
-          min = pix.2.channels()[channel];
-        }
-        if pix.2.channels()[channel] > max {
-          max = pix.2.channels()[channel];
-        }
       }
-      let lightness: u8 = (((max + min) / 2.0) * 255.0).round() as u8;
+      // uses the ITU BT.709 formula for Luma calculation
+      let lightness: u8 = ((pix.2.channels()[0] * 0.2126 + pix.2.channels()[1] * 0.7152 + pix.2.channels()[2] * 0.0722) * 255.0).clamp(0.0, 255.0).round() as u8;
       img.put_pixel(pix.0, pix.1, Luma([lightness]));
     }
 
