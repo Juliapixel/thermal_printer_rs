@@ -55,7 +55,7 @@ impl BitImage {
   }
 
   fn is_within_bounds(&self, x: isize, y: isize) {
-    if x < 0 && x >= self.width as isize && y < 0 && y >= self.height as isize {
+    if x < 0 || x >= self.width as isize || y < 0 || y >= self.height as isize {
       panic!("tried to read out of bounds at coords: {}, {}", x, y);
     }
   }
